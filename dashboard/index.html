@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fraud Operations KPI Dashboard</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --ink:#1c2430; --muted:#667085; --line:#e4e7ec;
+  --tp:#1b9e77; --fp:#a6adb8; --miss:#d1495b; --accent:#3b6fb6; --warn:#c98a00;
+  --banner-bg:#fff4d6; --banner-ink:#6b4a00;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f141a; --card:#171e27; --ink:#e6eaf0; --muted:#98a2b3; --line:#2a3340;
+    --tp:#34c79a; --fp:#6b7685; --miss:#f07286; --accent:#6ea0e8; --warn:#e0a82e;
+    --banner-bg:#3a2e0f; --banner-ink:#f5d98a;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 2px}
+h2{font-size:15px;margin:0 0 2px}
+.sub{color:var(--muted);margin:0 0 14px}
+.banner{background:var(--banner-bg);color:var(--banner-ink);border-radius:8px;padding:10px 14px;margin:0 0 14px;font-weight:500}
+.controls{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.ctl{display:flex;flex-direction:column;gap:4px;min-width:130px}
+.ctl.grow{flex:1;min-width:240px}
+.ctl label{font-size:12px;color:var(--muted)}
+.ctl label b{color:var(--ink);font-weight:600}
+input[type=range]{width:100%}
+input[type=number]{width:110px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;background:var(--bg);color:var(--ink);padding:7px 12px;cursor:pointer;font:inherit}
+.seg button.on{background:var(--accent);color:#fff}
+#reset{border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .v{font-size:24px;font-weight:650;margin:2px 0}
+.kpi .s{font-size:12px;color:var(--muted)}
+.pos{color:var(--tp)} .neg{color:var(--miss)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.hint{color:var(--muted);font-size:12px;margin:0 0 8px}
+.chart{width:100%}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:10px}
+th,td{text-align:right;padding:5px 6px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600}
+.scroll{overflow-x:auto}
+footer{color:var(--muted);font-size:12px;margin-top:16px}
+footer p{margin:4px 0}
+#tip{position:fixed;pointer-events:none;background:#101820;color:#fff;padding:6px 9px;border-radius:6px;font-size:12px;white-space:pre;opacity:0;transition:opacity .08s;z-index:10}
+.axis text{fill:var(--muted);font-size:11px}
+.axis line,.axis path{stroke:var(--line)}
+@media (max-width:520px){ .grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Fraud Operations KPI Dashboard</h1>
+  <p class="sub" id="sub"></p>
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="controls" aria-label="Controls">
+    <div class="ctl">
+      <label>Time window</label>
+      <div class="seg" role="group" aria-label="Time window">
+        <button type="button" data-win="test" class="on">Test period</button>
+        <button type="button" data-win="all">Validation + test</button>
+      </div>
+    </div>
+    <div class="ctl grow">
+      <label for="k">Alert budget: <b id="kout"></b></label>
+      <input type="range" id="k" min="1" max="1" value="1">
+    </div>
+    <div class="ctl">
+      <label for="cost">Review cost per alert</label>
+      <input type="number" id="cost" min="0" step="0.5">
+    </div>
+    <button type="button" id="reset">Reset to model default</button>
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="Key metrics"></section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Alerts per hour</h2>
+      <p class="hint">Each bar is one hour. Green = alerts that were real fraud, grey = false alarms.</p>
+      <div id="c1" class="chart" role="img" aria-label="Stacked bar chart of alerts per hour"></div>
+      <div class="legend"><span><i style="background:var(--tp)"></i>True fraud alerts</span><span><i style="background:var(--fp)"></i>False alarms</span></div>
+    </div>
+    <div class="card">
+      <h2>Cumulative net savings</h2>
+      <p class="hint">Fraud value caught minus review cost, accumulated hour by hour.</p>
+      <div id="c2" class="chart" role="img" aria-label="Line chart of cumulative net savings"></div>
+    </div>
+    <div class="card">
+      <h2>Alert volume vs. target</h2>
+      <p class="hint">Monitoring signal: hours with an alert rate above 2x the target are flagged amber.</p>
+      <div id="c3" class="chart" role="img" aria-label="Bar chart of hourly alert rate versus target"></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>Within range</span><span><i style="background:var(--warn)"></i>Above 2x target</span><span id="tgtlegend"></span></div>
+    </div>
+    <div class="card">
+      <h2>Fraud value: caught vs. missed</h2>
+      <p class="hint">Where the money goes, split by transaction amount band.</p>
+      <div id="c4" class="chart" role="img" aria-label="Bar showing fraud value caught versus missed"></div>
+      <div class="scroll"><table id="bandtbl"></table></div>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>Net savings</b> = fraud value caught - review cost x alerts. It assumes an alert on a fraud transaction fully prevents the loss, which is optimistic.</p>
+    <p><b>Window:</b> the model never trained on these transactions. The threshold was tuned on the validation period, so KPIs there are optimistic; the test period is the honest view.</p>
+    <p>The x-axis is hours since the first transaction in the dataset (it has no calendar dates). Amounts are in the dataset's currency units. Hourly counts are small, so single-hour swings are noisy.</p>
+  </footer>
+</div>
+<div id="tip"></div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+"use strict";
+var D = window.FRAUD_DATA;
+if(!D){
+  document.body.innerHTML = '<p style="padding:2rem;font-family:system-ui">dashboard/data.js not found. Run <code>python python/export_dashboard_data.py</code> first.</p>';
+  return;
+}
+var M = D.meta, R = D.rows, HR = D.hours, NH = HR.tx_val.length, H0 = HR.start;
+var EDGES = M.bands.edges, BL = M.bands.labels, NB = BL.length;
+var NR = R.s.length;
+var rowBand = new Array(NR);
+for (var i=0;i<NR;i++){ var b=0; for (var e=0;e<EDGES.length;e++){ if(R.a[i]>=EDGES[e]) b++; } rowBand[i]=b; }
+
+var state = { win:'test', thr:M.threshold, cost:M.review_cost };
+var S = []; // scores >= floor inside the current window, sorted descending
+
+function inWin(p){ return state.win==='all' || p===1; }
+function txHour(i){ return HR.tx_test[i] + (state.win==='all' ? HR.tx_val[i] : 0); }
+function txBand(b){ return M.bands.tx_test[b] + (state.win==='all' ? M.bands.tx_val[b] : 0); }
+
+function fmtInt(x){ return Math.round(x).toLocaleString('en-US'); }
+function fmtMoney(x){ var s = Math.abs(x).toLocaleString('en-US',{maximumFractionDigits:0}); return (x<0?'-':'')+s; }
+function fmtSigned(x){ return (x>=0?'+':'-') + Math.abs(x).toLocaleString('en-US',{maximumFractionDigits:0}); }
+function pct(x,d){ return (x===null||!isFinite(x)) ? '-' : (x*100).toFixed(d==null?1:d)+'%'; }
+
+function compute(thr, cost){
+  var hours = [];
+  for (var i=0;i<NH;i++){ if (txHour(i)>0) hours.push(i); }
+  var idx = {}; hours.forEach(function(h,j){ idx[h]=j; });
+  var n = hours.length;
+  var z = function(len){ var a=new Array(len); for(var q=0;q<len;q++) a[q]=0; return a; };
+  var o = { hours:hours, alerts:z(n), tp:z(n), fraud:z(n), caught:z(n), tx:hours.map(txHour),
+            b:{ alerts:z(NB), tp:z(NB), fraud:z(NB), caught:z(NB), fraudAmt:z(NB) },
+            fraudAmt:0, caughtAmt:0 };
+  for (var r=0;r<NR;r++){
+    if(!inWin(R.p[r])) continue;
+    var j = idx[R.h[r]]; if (j===undefined) continue;
+    var fl = R.s[r] >= thr, fr = R.f[r]===1, bd = rowBand[r];
+    if (fr){ o.fraud[j]++; o.fraudAmt += R.a[r]; o.b.fraud[bd]++; o.b.fraudAmt[bd] += R.a[r]; }
+    if (fl){ o.alerts[j]++; o.b.alerts[bd]++;
+      if (fr){ o.tp[j]++; o.caught[j]+=R.a[r]; o.caughtAmt+=R.a[r]; o.b.tp[bd]++; o.b.caught[bd]+=R.a[r]; } }
+  }
+  var sum = function(a){ return a.reduce(function(x,y){return x+y;},0); };
+  o.nTx = sum(o.tx); o.nAlerts = sum(o.alerts); o.nTp = sum(o.tp); o.nFraud = sum(o.fraud);
+  o.precision = o.nAlerts ? o.nTp/o.nAlerts : null;
+  o.recall = o.nFraud ? o.nTp/o.nFraud : null;
+  o.alertRate = o.nTx ? o.nAlerts/o.nTx : null;
+  o.net = o.caughtAmt - cost*o.nAlerts;
+  o.netHour = o.caught.map(function(c,q){ return c - cost*o.alerts[q]; });
+  return o;
+}
+
+function rebuildSlider(){
+  S = [];
+  for (var r=0;r<NR;r++){ if(inWin(R.p[r]) && R.s[r]>=M.floor) S.push(R.s[r]); }
+  S.sort(function(a,b){ return b-a; });
+  var k = document.getElementById('k');
+  k.max = Math.max(1,S.length);
+  var cnt = 0; while (cnt<S.length && S[cnt]>=state.thr) cnt++;
+  k.value = Math.max(1, cnt);
+}
+
+/* ---------- SVG helpers ---------- */
+function niceMax(v){ if(v<=0) return 1; var p=Math.pow(10,Math.floor(Math.log10(v))), f=v/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p; }
+function niceRange(lo,hi){
+  if (hi===lo){ hi=lo+1; }
+  var span = hi-lo, step = Math.pow(10,Math.floor(Math.log10(span/4))), m = span/4/step;
+  step = (m<=1?1:m<=2?2:m<=5?5:10)*step;
+  return { lo:Math.floor(lo/step)*step, hi:Math.ceil(hi/step)*step, step:step };
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function width(el){ return Math.max(300, el.clientWidth || 560); }
+
+function frame(W,Ht,m,yLo,yHi,yStep,yFmt,xLabels,xTitle){
+  var iw=W-m.l-m.r, ih=Ht-m.t-m.b, s='<g class="axis">';
+  var y = function(v){ return m.t + ih - (v-yLo)/(yHi-yLo)*ih; };
+  for (var v=yLo; v<=yHi+yStep/1000; v+=yStep){
+    s += '<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+y(v)+'" y2="'+y(v)+'"/>';
+    s += '<text x="'+(m.l-6)+'" y="'+(y(v)+4)+'" text-anchor="end">'+esc(yFmt(v))+'</text>';
+  }
+  var n=xLabels.length, step=Math.max(1,Math.ceil(n/Math.max(4,Math.floor(iw/38))));
+  for (var i=0;i<n;i+=step){
+    s += '<text x="'+(m.l+iw*(i+0.5)/n)+'" y="'+(Ht-m.b+15)+'" text-anchor="middle">'+esc(xLabels[i])+'</text>';
+  }
+  s += '<text x="'+(m.l+iw/2)+'" y="'+(Ht-3)+'" text-anchor="middle">'+esc(xTitle)+'</text></g>';
+  return { s:s, y:y, iw:iw, ih:ih };
+}
+
+function chartAlerts(el,d){
+  var W=width(el), Ht=240, m={l:40,r:8,t:8,b:34}, n=d.hours.length;
+  var rg = niceRange(0, Math.max.apply(null,d.alerts.concat([1])));
+  var f = frame(W,Ht,m,0,rg.hi,rg.step,function(v){return fmtInt(v);},d.hours.map(function(h){return h+H0;}),'Hours since first transaction');
+  var bw = f.iw/n*0.72, s=f.s;
+  for (var i=0;i<n;i++){
+    var x = m.l + f.iw*(i+0.5)/n - bw/2, fp = d.alerts[i]-d.tp[i];
+    var tip = 'Hour '+(d.hours[i]+H0)+'\nAlerts: '+d.alerts[i]+'  (fraud '+d.tp[i]+', false '+fp+')\nFraud cases missed: '+(d.fraud[i]-d.tp[i])+'\nTransactions: '+fmtInt(d.tx[i]);
+    s += '<g data-tip="'+esc(tip)+'">';
+    s += '<rect x="'+x+'" y="'+f.y(d.tp[i])+'" width="'+bw+'" height="'+(f.y(0)-f.y(d.tp[i]))+'" fill="var(--tp)"/>';
+    s += '<rect x="'+x+'" y="'+f.y(d.alerts[i])+'" width="'+bw+'" height="'+(f.y(d.tp[i])-f.y(d.alerts[i]))+'" fill="var(--fp)"/>';
+    s += '<rect x="'+x+'" y="'+m.t+'" width="'+bw+'" height="'+f.ih+'" fill="transparent"/></g>';
+  }
+  el.innerHTML = '<svg viewBox="0 0 '+W+' '+Ht+'">'+s+'</svg>';
+}
+
+function chartNet(el,d){
+  var W=width(el), Ht=240, m={l:52,r:12,t:10,b:34}, n=d.hours.length, cum=[], c=0;
+  d.netHour.forEach(function(v){ c+=v; cum.push(c); });
+  var lo=Math.min.apply(null,cum.concat([0])), hi=Math.max.apply(null,cum.concat([0]));
+  var rg = niceRange(lo,hi);
+  var f = frame(W,Ht,m,rg.lo,rg.hi,rg.step,function(v){return fmtMoney(v);},d.hours.map(function(h){return h+H0;}),'Hours since first transaction');
+  var s=f.s, pts=[];
+  s += '<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+f.y(0)+'" y2="'+f.y(0)+'" stroke="var(--muted)" stroke-dasharray="3 3"/>';
+  for (var i=0;i<n;i++){ pts.push([m.l+f.iw*(i+0.5)/n, f.y(cum[i])]); }
+  s += '<polyline fill="none" stroke="var(--accent)" stroke-width="2.2" points="'+pts.map(function(p){return p[0]+','+p[1];}).join(' ')+'"/>';
+  for (i=0;i<n;i++){
+    var tip='Hour '+(d.hours[i]+H0)+'\nNet this hour: '+fmtSigned(d.netHour[i])+'\nCumulative: '+fmtMoney(cum[i]);
+    s += '<circle cx="'+pts[i][0]+'" cy="'+pts[i][1]+'" r="3.2" fill="var(--accent)" data-tip="'+esc(tip)+'"/>';
+  }
+  el.innerHTML = '<svg viewBox="0 0 '+W+' '+Ht+'">'+s+'</svg>';
+}
+
+function chartRate(el,d){
+  var W=width(el), Ht=240, m={l:44,r:8,t:8,b:34}, n=d.hours.length, tgt=M.target_alert_rate;
+  var rates = d.alerts.map(function(a,i){ return d.tx[i]? a/d.tx[i]*100 : 0; });
+  var rg = niceRange(0, Math.max.apply(null,rates.concat([tgt*100*2.2, 0.1])));
+  var f = frame(W,Ht,m,0,rg.hi,rg.step,function(v){return v.toFixed(rg.step<1?2:1)+'%';},d.hours.map(function(h){return h+H0;}),'Hours since first transaction');
+  var s=f.s, bw=f.iw/n*0.72;
+  for (var i=0;i<n;i++){
+    var hot = rates[i] > tgt*100*2, x=m.l+f.iw*(i+0.5)/n-bw/2;
+    var tip='Hour '+(d.hours[i]+H0)+'\nAlert rate: '+rates[i].toFixed(2)+'%\nTarget: '+(tgt*100).toFixed(2)+'%'+(hot?'\nAbove 2x target':'');
+    s += '<rect x="'+x+'" y="'+f.y(rates[i])+'" width="'+bw+'" height="'+(f.y(0)-f.y(rates[i]))+'" fill="'+(hot?'var(--warn)':'var(--accent)')+'" data-tip="'+esc(tip)+'"/>';
+  }
+  s += '<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+f.y(tgt*100)+'" y2="'+f.y(tgt*100)+'" stroke="var(--ink)" stroke-dasharray="5 4"/>';
+  s += '<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+f.y(tgt*200)+'" y2="'+f.y(tgt*200)+'" stroke="var(--warn)" stroke-dasharray="2 3"/>';
+  el.innerHTML = '<svg viewBox="0 0 '+W+' '+Ht+'">'+s+'</svg>';
+  document.getElementById('tgtlegend').innerHTML = '<i style="background:var(--ink)"></i>Target '+(tgt*100).toFixed(2)+'% (validation alert rate at the chosen threshold)';
+}
+
+function chartValue(el,d){
+  var W=width(el), Ht=64, tot=d.fraudAmt, caught=d.caughtAmt, miss=tot-caught, pad=8, iw=W-2*pad;
+  var cw = tot? iw*caught/tot : 0;
+  var s = '<rect x="'+pad+'" y="10" width="'+cw+'" height="26" rx="4" fill="var(--tp)" data-tip="'+esc('Caught: '+fmtMoney(caught))+'"/>';
+  s += '<rect x="'+(pad+cw)+'" y="10" width="'+(iw-cw)+'" height="26" rx="4" fill="var(--miss)" data-tip="'+esc('Missed: '+fmtMoney(miss))+'"/>';
+  s += '<text x="'+pad+'" y="56" fill="var(--ink)" font-size="12">Caught '+fmtMoney(caught)+' ('+pct(tot?caught/tot:null)+')</text>';
+  s += '<text x="'+(W-pad)+'" y="56" fill="var(--ink)" font-size="12" text-anchor="end">Missed '+fmtMoney(miss)+'</text>';
+  el.innerHTML = '<svg viewBox="0 0 '+W+' '+Ht+'">'+s+'</svg>';
+}
+
+function renderTable(d){
+  var h = '<thead><tr><th>Amount band</th><th>Transactions</th><th>Alerts</th><th>Fraud cases</th><th>Caught</th><th>Precision</th><th>Value caught</th></tr></thead><tbody>';
+  for (var b=0;b<NB;b++){
+    var pr = d.b.alerts[b]? d.b.tp[b]/d.b.alerts[b] : null, vc = d.b.fraudAmt[b]? d.b.caught[b]/d.b.fraudAmt[b] : null;
+    h += '<tr><td>'+esc(BL[b])+'</td><td>'+fmtInt(txBand(b))+'</td><td>'+fmtInt(d.b.alerts[b])+'</td><td>'+fmtInt(d.b.fraud[b])+'</td><td>'+fmtInt(d.b.tp[b])+'</td><td>'+pct(pr)+'</td><td>'+pct(vc)+'</td></tr>';
+  }
+  document.getElementById('bandtbl').innerHTML = h + '</tbody>';
+}
+
+function renderKpis(d, base){
+  var delta = d.net - base.net, cls = delta>=0?'pos':'neg';
+  var cards = [
+    ['Transactions', fmtInt(d.nTx), d.hours.length+' hours, '+fmtInt(d.nFraud)+' fraud cases'],
+    ['Alerts', fmtInt(d.nAlerts), pct(d.alertRate,2)+' of transactions'],
+    ['Precision', pct(d.precision), fmtInt(d.nTp)+' of '+fmtInt(d.nAlerts)+' alerts were fraud'],
+    ['Recall (cases)', pct(d.recall), fmtInt(d.nTp)+' of '+fmtInt(d.nFraud)+' fraud cases caught'],
+    ['Fraud value caught', fmtMoney(d.caughtAmt), pct(d.fraudAmt? d.caughtAmt/d.fraudAmt : null)+' of '+fmtMoney(d.fraudAmt)],
+    ['Net savings', fmtMoney(d.net), '<span class="'+cls+'">'+fmtSigned(delta)+'</span> vs. model default']
+  ];
+  document.getElementById('kpis').innerHTML = cards.map(function(c){
+    return '<div class="kpi"><div class="l">'+c[0]+'</div><div class="v">'+c[1]+'</div><div class="s">'+c[2]+'</div></div>';
+  }).join('');
+}
+
+function render(){
+  var d = compute(state.thr, state.cost), base = compute(M.threshold, M.review_cost);
+  renderKpis(d, base);
+  chartAlerts(document.getElementById('c1'), d);
+  chartNet(document.getElementById('c2'), d);
+  chartRate(document.getElementById('c3'), d);
+  chartValue(document.getElementById('c4'), d);
+  renderTable(d);
+  document.getElementById('kout').textContent = fmtInt(d.nAlerts)+' alerts ('+pct(d.alertRate,2)+' of transactions), threshold '+state.thr.toFixed(4);
+}
+
+/* ---------- init ---------- */
+document.getElementById('sub').textContent = 'Source: '+M.source+' | Model: '+M.model+' | Default threshold '+M.threshold.toFixed(4)+' | Generated '+M.generated;
+if (M.synthetic){
+  var bn = document.getElementById('banner'); bn.hidden = false;
+  bn.textContent = 'DEMO DATA: these transactions are synthetic, not real. Run python/export_dashboard_data.py on the real dataset to replace them.';
+}
+var costEl = document.getElementById('cost'); costEl.value = state.cost;
+rebuildSlider();
+
+document.getElementById('k').addEventListener('input', function(e){
+  var k = +e.target.value; state.thr = S[Math.min(S.length,Math.max(1,k))-1]; render();
+});
+costEl.addEventListener('input', function(e){
+  var v = parseFloat(e.target.value); state.cost = isFinite(v) && v>=0 ? v : 0; render();
+});
+document.getElementById('reset').addEventListener('click', function(){
+  state.thr = M.threshold; state.cost = M.review_cost; costEl.value = state.cost; rebuildSlider(); render();
+});
+Array.prototype.forEach.call(document.querySelectorAll('[data-win]'), function(btn){
+  btn.addEventListener('click', function(){
+    state.win = btn.getAttribute('data-win');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-win]'), function(b){ b.classList.toggle('on', b===btn); });
+    rebuildSlider(); render();
+  });
+});
+
+var tip = document.getElementById('tip');
+document.addEventListener('mousemove', function(e){
+  var t = e.target.closest ? e.target.closest('[data-tip]') : null;
+  if (!t){ tip.style.opacity = 0; return; }
+  tip.textContent = t.getAttribute('data-tip');
+  tip.style.left = Math.min(window.innerWidth-190, e.clientX+12)+'px';
+  tip.style.top = (e.clientY+14)+'px';
+  tip.style.opacity = 1;
+});
+var rt; window.addEventListener('resize', function(){ clearTimeout(rt); rt=setTimeout(render,120); });
+
+render();
+})();
+</script>
+</body>
+</html>
