@@ -1,11 +1,17 @@
 # Data
 
-The CSV is not included in this repo (large file and dataset terms).
+Nothing here is committed (see `.gitignore`).
 
-Download **Credit Card Fraud Detection** (ULB / Worldline, on Kaggle as `mlg-ulb/creditcardfraud`) and save it as:
+You need two inputs, both from the companion modeling project
+[fraud-detection-card-transactions](https://github.com/andikapratamazaid/fraud-detection-card-transactions):
 
+1. `data/creditcard.csv`: the Credit Card Fraud Detection dataset (ULB / Worldline, Kaggle `mlg-ulb/creditcardfraud`). Check the dataset page for its current license.
+2. `models/fraud_model.joblib` and `models/threshold.json`: produced by that project's notebook (section 9, "Save the model").
+
+Then run:
+
+```bash
+python python/export_dashboard_data.py
 ```
-data/creditcard.csv
-```
 
-About 285K transactions over two days; features `V1`-`V28` are anonymized PCA components, plus `Time`, `Amount` and `Class` (1 = fraud). Check the dataset page for the current license and citation requirements before reuse.
+This writes `data/scored_transactions.csv` (for SQL / Power BI) and `dashboard/data.js` (for the HTML dashboard).
