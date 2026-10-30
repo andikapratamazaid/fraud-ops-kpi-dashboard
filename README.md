@@ -1,93 +1,89 @@
-# Fraud Detection in Online Card Transactions
+# Fraud Operations KPI Dashboard
 
-> Flagging fraudulent card transactions and choosing *how many alerts to raise* so that a fraud team saves more than it spends. Built with scikit-learn, with a time-based evaluation.
+> Monitoring dashboard for a card-fraud model: alert volume, precision, fraud value caught, net savings and volume-spike detection, with an interactive alert-budget slider. SQL + Python + a standalone HTML dashboard.
 
-**Dataset:** Credit Card Fraud Detection (ULB / Worldline): 284,807 European card transactions over two days, 0.173% fraud · **Tools:** Python, pandas, scikit-learn, matplotlib, seaborn
+**Live demo:** `https://andikapratamazaid.github.io/fraud-ops-kpi-dashboard/dashboard/` *(after you enable GitHub Pages, see below)*
+**Companion project:** [Fraud Detection in Online Card Transactions](https://github.com/andikapratamazaid/fraud-detection-card-transactions) (the model this dashboard monitors)
+
+![Dashboard](images/dashboard.png)
 
 ## Business Problem
-A payment provider loses money on every undetected fraud, but each alert also costs analyst time and may annoy a legitimate customer. A model that "is 99.8% accurate" is worthless here, since predicting "legit" for everything already scores that. The real question is: **which transactions should be reviewed, and how many, to maximize net savings?**
+A fraud model is only useful if the operations team can run it day to day. They need to know how many alerts to expect, how many are real, how much money is protected, and when something looks wrong. This project turns model scores into the KPIs an operations manager actually watches.
 
-## Approach
-1. **Data validation:** missing values, exact duplicate rows (dropped to avoid train/test contamination), class imbalance.
-2. **EDA:** amount distribution by class, fraud rate over time, features that separate fraud most.
-3. **Time-based split:** 60% train / 20% validation / 20% test in chronological order, so the model never learns from the future.
-4. **Three model families:** logistic regression (supervised baseline), Isolation Forest (unsupervised anomaly detection, no labels), and tuned gradient boosting using `TimeSeriesSplit` cross-validation.
-5. **Metric:** PR-AUC (average precision) instead of accuracy or ROC-AUC, plus a bootstrap interval because the test set has few frauds.
-6. **Business-driven threshold:** choose the alert rate that maximizes `fraud amount caught - review cost x alerts` on the validation set.
-7. **One-shot test evaluation:** precision, recall, money caught, confusion matrix, and an alert-budget table (precision/recall if analysts can review only 0.05% to 1% of transactions).
+## What It Answers
+1. How many alerts per hour, and what share are real fraud (precision)?
+2. How many fraud cases and how much fraud value do we catch (recall, value caught)?
+3. Is the program making money after review costs (net savings, cumulative)?
+4. Which transaction amounts does the model protect well or poorly?
+5. Is alert volume drifting? Any hour above 2x the target alert rate gets flagged.
+6. What happens if analysts can review more or fewer alerts, or if a review costs more? (interactive slider and cost input)
 
-## Key Decisions
-| Issue | Decision |
-|---|---|
-| Extreme imbalance (0.173% fraud) | PR-AUC as the main metric; accuracy only shown to explain why it is misleading |
-| Shuffled splits would leak the future | Chronological train/validation/test split and `TimeSeriesSplit` for tuning |
-| Duplicate rows | Dropped before splitting (1,081 exact duplicates found) |
-| Few frauds in the test set | Bootstrap confidence interval on PR-AUC |
-| Probabilities are extremely skewed | Threshold searched over alert-rate quantiles, not a fixed 0.1-0.9 grid |
-| Complex vs. simple model | Gradient boosting kept only if it clearly beats logistic regression |
-| Labels are not always available | Isolation Forest included as an unsupervised reference |
+## How It Works
+```
+creditcard.csv + trained model
+        |  python/export_dashboard_data.py   (same features + chronological split as the modeling project)
+        v
+data/scored_transactions.csv ---> sql/ (PostgreSQL KPI views) ---> Power BI / Tableau (see docs/powerbi_guide.md)
+dashboard/data.js ------------->  dashboard/index.html  (standalone, no server or build step)
+```
+The monitoring window is the last 40% of the timeline (validation + test), which the model never trained on. The dashboard defaults to the **test period**, because the threshold was tuned on the validation period and its KPIs are optimistic.
 
 ## Project Structure
 ```
-notebooks/fraud_detection.ipynb   -- full analysis, from validation to model saving
-data/                             -- place creditcard.csv here (not committed)
-models/                           -- saved model + threshold (generated)
-images/                           -- charts for this README
-requirements.txt
+python/export_dashboard_data.py   -- scores the window, writes the CSV and data.js
+sql/01_create_table.sql           -- table + review-cost parameter
+sql/02_kpi_views.sql              -- hourly, daily, overall, amount-band and volume-monitor views
+dashboard/index.html              -- standalone dashboard (inline SVG charts, no dependencies)
+dashboard/data.js                 -- dashboard data (the committed copy is the REAL export, see Findings)
+docs/kpi_definitions.md           -- every KPI, its formula and its limits
+docs/powerbi_guide.md             -- DAX measures and page layout for Power BI
 ```
 
-## How to Run
+## Quick Start
 ```bash
-git clone https://github.com/andikapratamazaid/fraud-detection-card-transactions.git
-cd fraud-detection-card-transactions
+git clone https://github.com/andikapratamazaid/fraud-ops-kpi-dashboard.git
+cd fraud-ops-kpi-dashboard
 pip install -r requirements.txt
-# download the dataset into data/ (see data/README.md)
-jupyter notebook notebooks/fraud_detection.ipynb
+# put creditcard.csv in data/ and the trained model in models/ (see data/README.md)
+python python/export_dashboard_data.py
+# open dashboard/index.html in a browser
 ```
 
-## Results
-All numbers below are the actual output of the executed notebook in this repo. After dropping duplicates: train 170,235 transactions (342 frauds), validation 56,745 (57 frauds), test 56,746 (74 frauds).
+> **Data status:** the `dashboard/data.js` in this repo is the **real export** produced by running the export script on the ULB/Worldline dataset with the companion project's trained model (30 Oct 2026 run). It contains only aggregated and high-score transactions, no raw dataset. Re-running the export on your own copy of the dataset regenerates it.
 
-| Model | Validation PR-AUC | Test PR-AUC |
-|---|---|---|
-| Logistic regression | 0.760 | 0.746 |
-| Isolation Forest (unsupervised) | 0.020 | 0.036 |
-| Gradient boosting (tuned) | 0.783 | 0.785 |
+**SQL (PostgreSQL):** run `sql/01_create_table.sql`, load the CSV with the `\copy` line inside it, then run `sql/02_kpi_views.sql` and query `v_overall_kpis`, `v_hourly_kpis`, `v_alert_volume_monitor`.
 
-- **No-skill PR-AUC** (= fraud rate): 0.0010 on validation, 0.0013 on test. The tuned model scores roughly 600x that on the test set; gradient boosting is kept because it beats logistic regression on both validation (0.783 vs. 0.760) and test (0.785 vs. 0.746).
-- **Test PR-AUC 95% interval:** [0.693, 0.892] (bootstrap; the interval is wide because the test slice holds only 74 frauds).
-- **Chosen alert rate:** 0.089% of transactions (threshold 0.6338, picked on validation) → on the test set that is 65 alerts (0.115%), with **precision 0.846** and **recall 0.743**.
-- **Fraud amount caught:** **65.8%** of total fraud value (5,089 of 7,728), **net savings 4,764** on the test set at `REVIEW_COST` = 5 per review. On validation the same rule nets 7,501, while flagging everything would lose 271,494.
-- **Alert-budget view (test):** reviewing just the top 0.05% of scored transactions is 100% precise and already catches 37.8% of frauds; at a 0.10% budget, precision is 0.946 with recall 0.716. Precision collapses beyond that (0.216 at 0.50%), so a small, fixed review budget is the sweet spot.
-- **Isolation Forest is far weaker** (test PR-AUC 0.036) but needs no labels at all, so it remains a fallback reference for settings without fraud history.
+**GitHub Pages:** repo Settings > Pages > Deploy from branch `main`, folder `/ (root)`.
 
-![Model evaluation](images/evaluation.png)
+## Findings
+From the documented run (PostgreSQL KPI views over 113,491 scored transactions, hours 33–47, 131 frauds). The SQL numbers match the modeling notebook exactly.
 
-## Business Recommendations
-| Finding | Action |
+**Overall KPIs (`v_overall_kpis`):**
+
+| Split | Transactions | Alerts | Precision | Recall (cases) | Fraud value | Caught | Net savings (cost 5) |
+|---|---|---|---|---|---|---|---|
+| Validation | 56,745 | 51 | 0.843 | 0.754 | 12,231 | 7,756 (63.4%) | 7,501 |
+| Test | 56,746 | 65 | 0.846 | 0.743 | 7,728 | 5,089 (65.8%) | 4,764 |
+
+- Test-period precision **84.6%**, recall **74.3%**, fraud value caught **65.8%** (net savings **4,764** at review cost 5).
+- **Largest gap is in the big amounts.** The 1,000+ band has the worst value-caught share (57.8%), and the 200–1,000 band misses the most money (1,230 of 3,754). Together the two bands ≥200 hold 82% of all fraud value but 88% of the missed value. At the other end, the <10 band holds the most fraud *cases* (44 of 74) yet only 89 of total fraud value, while consuming 42 of the 65 alerts.
+- **No hour crossed the 2x spike line** in either period (`v_alert_volume_monitor`), so no staffing alert would have fired. The closest was test hour 42 at 1.98x the target rate (15 alerts), which shows the threshold is near the edge of normal variation.
+- **Sensitivity:** raising the review cost from 5 to 25 does **not** move the best alert budget (0.086% of transactions in both cases, computed on validation scores); even at a cost of 50 it only trims to 0.065%. The top alerts are almost all real fraud, so review cost is nearly irrelevant until it becomes extreme.
+
+## Recommendations
+| Observation | Action |
 |---|---|
-| A tiny alert budget already captures most of the value: the top 0.10% of scores catch 71.6% of frauds at 94.6% precision | Start with a fixed daily review budget around the chosen alert rate (~0.1%) and tune from there |
-| Fraud amounts are usually small (median 9.82 vs. 22.00 for legitimate transactions) and low budgets stay precise | Consider auto-approving very small transactions to save review capacity for larger ones |
-| Fraud concentrates in the small hours, where the fraud rate reaches ~1.5% of transactions vs. near zero at midday | Weight staffing and review SLAs toward night hours instead of spreading them evenly |
-| Unsupervised scores are weaker but need no labels (test PR-AUC 0.036 vs. 0.785) | Use Isolation Forest only as a fallback for new merchants or markets with no fraud history |
+| No spike hour fired, but hour 42 reached 1.98x target | Keep the automatic staffing alert at 2x target; it is calibrated just above normal noise |
+| The <10 band uses 42 of 65 alerts to protect only 89 of fraud value (56 caught) | Consider auto-approving very small amounts to free review capacity for larger transactions |
+| Bands ≥200 are caught least (57.8–67.2% of value) and hold 82% of the money | Add a lower threshold or a mandatory manual check for large amounts |
+| The optimal alert budget is insensitive to review cost between 5 and 25 | Set the budget by analyst capacity, not by cost negotiations |
 
 ## Limitations
-- Only two days of European card data from 2013, so no seasonality or long-term drift testing, and not representative of Indonesian payment behavior.
-- Few frauds in the test slice, so metrics are noisy.
-- Anonymized PCA features limit interpretability and prevent merchant, device or customer-history features.
-- In production, fraud labels arrive late (chargebacks), and fraudsters adapt over time.
-- Cost assumptions are simplifications: fixed review cost, flagged fraud assumed fully prevented, no customer-friction cost for false alarms.
-
-## Next Steps
-- Repeat on the IEEE-CIS Fraud Detection dataset with richer features (device, email domain, transaction history)
-- Velocity and behavioral features, SHAP explanations
-- Probability calibration and a drift-monitoring plan
-- Simple API or Streamlit demo that scores a transaction
-
-## Related Projects
-- [E-Commerce RFM Segmentation & Cohort Retention (SQL)](https://github.com/andikapratamazaid/ecommerce-rfm-cohort-sql)
-- [Customer Churn Prediction for a Telecom Provider](https://github.com/andikapratamazaid/telco-churn-prediction)
-- [Fraud Operations KPI Dashboard](https://github.com/andikapratamazaid/fraud-ops-kpi-dashboard) — monitoring dashboard built on this project's model
+- The dataset has no calendar dates and spans about two days, so there is no day-of-week or long-term trend, and "daily" KPIs are effectively one or two points. Hourly is the working grain.
+- Net savings assumes flagged fraud is fully prevented and ignores customer friction.
+- Hourly counts are small, so single-hour swings are noisy.
+- Fraud labels are known immediately here; in production they arrive late.
+- The Power BI DAX in `docs/` was not executed in Power BI.
 
 ## Author
 **Andika Pratama Zaid** · [LinkedIn](https://linkedin.com/in/andikapratamazaid) · [GitHub](https://github.com/andikapratamazaid)
